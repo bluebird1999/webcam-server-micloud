@@ -1,0 +1,120 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+服务器MICLOUD接口文档
+server MICLOUD interface
+（时间）
+(维护者）
+(/server/micloud/micloud_interface.h)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+################################################################################
+宏定义（MACRO）
+################################################################################
+可设置参数ID定义
+#define		MICLOUD_CTRL_UPLOAD_SWITCH				0x0000
+#define 	MICLOUD_CTRL_WARNING_PUSH_SWITCH		0x0001
+
+################################################################################
+数据结构（STRUCT）
+################################################################################
+IOT参数结构体：提供给其他服务器的统一参数接口
+typedef struct micloud_iot_config_t {
+	(待补)
+} micloud_iot_config_t;
+
+################################################################################
+消息（MESSAGE）
+################################################################################
+#define		MSG_MICLOUD_BASE					(SERVER_MICLOUD<<16)
+#define		MSG_MICLOUD_SIGINT					MSG_MICLOUD_BASE | 0x0000
+#define		MSG_MICLOUD_SIGINT_ACK				MSG_MICLOUD_BASE | 0x1000
+#define		MSG_MICLOUD_GET_PARA				MSG_MICLOUD_BASE | 0x0010
+#define		MSG_MICLOUD_GET_PARA_ACK			MSG_MICLOUD_BASE | 0x1010
+#define		MSG_MICLOUD_SET_PARA				MSG_MICLOUD_BASE | 0x0011
+#define		MSG_MICLOUD_SET_PARA_ACK			MSG_MICLOUD_BASE | 0x1011
+#define		MSG_MICLOUD_CTRL_DIRECT				MSG_MICLOUD_BASE | 0x0012
+#define		MSG_MICLOUD_CTRL_DIRECT_ACK			MSG_MICLOUD_BASE | 0x1012
+#define		MSG_MICLOUD_VIDEO_DATA				MSG_MICLOUD_BASE | 0x0100
+#define		MSG_MICLOUD_AUDIO_DATA				MSG_MICLOUD_BASE | 0x0101
+#define		MSG_MICLOUD_WARNING_NOTICE			MSG_MICLOUD_BASE | 0x0102
+--------------------------------------------------------------------------------
+		MSG_MICLOUD_SIGINT
+消息说明：		服务器发送SIGINT系统响应到MANAGER
+发送服务器：		MICLOUD
+接受服务器：		MANAGER
+传入参数：		无
+返回消息：		无
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+		MSG_MICLOUD_GET_PARA
+消息说明：		从MICLOUD服务器获取IOT参数
+发送服务器：		VIDEO,MIIO,MISS,
+接受服务器：		MICLOUD
+传入参数：
+	arg_pass:	message_arg_t			回传参数
+返回消息：		必须
+		MSG_MICLOUD_GET_PARA_ACK
+传回参数：
+	result:		int						0:成功，其他失败
+	arg_pass:	message_arg_t			回传参数，原样拷贝
+	arg:		*micloud_iot_config_t	结构指针
+	arg_size:	int						arg结构大小
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+		MSG_MICLOUD_CTRL_DIRECT
+消息说明：		设置MICLOUD服务器的参数，可以在运行状态设置
+发送服务器：		VIDEO,MIIO,MISS,
+接受服务器：		MICLOUD
+传入参数：
+	arg_in:		message_arg_t			传入参数
+		cat:	int						需要配置参数的ID（参照上面的参数宏）
+	arg:		void*					需要配置的参数的值
+	arg_size:	int						需要配置的参数的值的大小
+	arg_pass:	message_arg_t			回传参数
+返回消息：		必须
+		MSG_MICLOUD_CTRL_DIRECT_ACK
+传回参数：
+	result:		int						0:成功，其他失败
+	arg_pass:	message_arg_t			回传参数，原样拷贝
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+		MSG_MICLOUD_VIDEO_DATA
+消息说明：		接收和处理从VIDEO服务器发出的视频数据
+发送服务器：		VIDEO
+接受服务器：		MICLOUD
+传入参数：
+	arg:		av_data_info_t*			av_data_info_t结构，记录视频祯信息
+	arg_size:	int						arg的大小
+	extra:		char*					视频数据
+	extra_size:	int						视频数据的大小	
+返回消息：		无
+---------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+		MSG_MICLOUD_AUDIO_DATA
+消息说明：		接收和处理从AUDIO服务器发出的视频数据
+发送服务器：		AUDIO
+接受服务器：		MICLOUD
+传入参数：
+	arg:		av_data_info_t*			av_data_info_t结构，记录音频祯信息
+	arg_size:	int						arg的大小
+	extra:		char*					音频数据
+	extra_size:	int						音频数据的大小	
+返回消息：		无
+---------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+		MSG_MICLOUD_WARNING_NOTICE
+消息说明：		接收和处理从VIDEO服务器发出的运动侦测消息
+发送服务器：		VIDEO
+接受服务器：		MICLOUD
+传入参数：
+	arg_in:		message_arg_t			传入参数
+		cat:	int						侦测时刻点，UNIX时间戳
+		dog:	int						视频祯的时刻
+	arg:		char*					bmp图片数据
+	arg_size:	int						bmp的大小
+返回消息：		无
+---------------------------------------------------------------------------------
