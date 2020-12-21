@@ -21,96 +21,134 @@
 #include <mi_cloud_porting.h>
 #include "../../tools/tools_interface.h"
 #include "../../server/realtek/realtek_interface.h"
+#include "../../server/video2/video2_interface.h"
+#include "../../server/audio/audio_interface.h"
 #include "micloud.h"
 
 static message_buffer_t		video_buff;
 static message_buffer_t		audio_buff;
-static pthread_rwlock_t			lock;
+static pthread_rwlock_t		lock1=PTHREAD_RWLOCK_INITIALIZER;
+static pthread_rwlock_t		lock2=PTHREAD_RWLOCK_INITIALIZER;
+static pthread_rwlock_t		alock=PTHREAD_RWLOCK_INITIALIZER;
+static pthread_rwlock_t		vlock=PTHREAD_RWLOCK_INITIALIZER;
+
+static	pthread_mutex_t			vmutex=PTHREAD_MUTEX_INITIALIZER;
+static	pthread_cond_t			vcond = PTHREAD_COND_INITIALIZER;
+static	pthread_mutex_t			amutex=PTHREAD_MUTEX_INITIALIZER;
+static	pthread_cond_t			acond = PTHREAD_COND_INITIALIZER;
+
 static FILE *fp_img = NULL;
 static int pthread_exit_flags=0;
 static int a_pthread_creat_flags=0;
 static int v_pthread_creat_flags=0;
+//static uint32_t a_index = 0;
+//static uint32_t v_index = 0;
 
-static int local_send_video_frame(message_t *msg);
-static int local_send_audio_frame(message_t *msg);
+static int local_send_video_frame(av_packet_t *packet);
+static int local_send_audio_frame(av_packet_t *packet);
+static int sendto_video2_exit(void);
+static int sendto_audio_exit(void);
 
 
-static int local_send_video_frame(message_t *msg)
+
+static int sendto_video2_exit(void)
 {
-    mi_frame_info_t *pvinfo = NULL;
+		int ret;
+		message_t msg;
+	    /********message video body********/
+		msg_init(&msg);
+		msg.message = MSG_VIDEO2_STOP;
+		msg.sender = msg.receiver = SERVER_MICLOUD;
+	    ret=server_video2_message(&msg);
+		/****************************/
+	    if(ret)  return -1;
+		log_qcy(DEBUG_INFO, "get_video_stream_cmd end ok  ret=%\n",ret);
+		return ret;
+}
+static int sendto_audio_exit(void)
+{
+		int ret;
+		message_t msg;
+	    /********message audio  body********/
+		msg_init(&msg);
+		msg.message = MSG_AUDIO_STOP;
+		msg.sender = msg.receiver = SERVER_MICLOUD;
+		ret=server_audio_message(&msg);
+		/****************************/
+	    if(ret)  return -1;
+		log_qcy(DEBUG_INFO, "get_audio_stream_cmd end ok  ret=%\n",ret);
+	return ret;
+}
+
+static int local_send_video_frame(av_packet_t *packet)
+{
+    mi_frame_info_t pvinfo = {0};
     int ret;
     int flag;
-    av_data_info_t	*avinfo;
-    pvinfo=( mi_frame_info_t *)malloc(sizeof(mi_frame_info_t));
-    pvinfo->data = (unsigned char*)(msg->extra);
-    if(  pvinfo->data==NULL || msg->arg==NULL ) {
-    	log_err("--pvinfo->data==NULL || msg->arg==NULL--\n");
+    pthread_rwlock_rdlock(&vlock);
+    if( (*(packet->init) == 0 ) || packet->data == NULL  )
+    {
+    	log_qcy(DEBUG_INFO, "packet->data == NULL\n");
+    	pthread_rwlock_unlock(&vlock);
     	return -1;
     }
-    avinfo = (av_data_info_t*)(msg->arg);
-    pvinfo->timestamp = avinfo->timestamp;
-    pvinfo->timestamp_s = avinfo->timestamp/1000;
-    pvinfo->seqNo = avinfo->frame_index;
-    pvinfo->data_size = msg->extra_size;
-    flag = pvinfo->data[4];
-    if( flag != 0x41 ) {	// I frame
-        pvinfo->type = MEDIA_FRAME_VIDEO_I;
-   //     log_info("key frame -->MEDIA_FRAME_VIDEO_I\n");
-    } else {
-        pvinfo->type = MEDIA_FRAME_VIDEO_PB;
+   // pvinfo=( mi_frame_info_t *)malloc(sizeof(mi_frame_info_t));
+    pvinfo.data = (unsigned char*)(packet->data);
+    pvinfo.timestamp = packet->info.timestamp;
+    pvinfo.timestamp_s = packet->info.timestamp/1000;
+    pvinfo.seqNo = packet->info.index;
+   // pvinfo->seqNo=v_index++;
+
+    pvinfo.data_size = packet->info.size;
+    if( misc_get_bit(packet->info.flag, 0/*RTSTREAM_PKT_FLAG_KEY*/) )// I frame
+    { pvinfo.type = MEDIA_FRAME_VIDEO_I;
+   // log_qcy(DEBUG_SERIOUS,"key frame -->MEDIA_FRAME_VIDEO_I\n");
     }
+      else{
+    	  pvinfo.type = MEDIA_FRAME_VIDEO_PB;
+         // log_qcy(DEBUG_SERIOUS,"key frame -->MEDIA_FRAME_VIDEO_p\n");
+      }
 
-    ret = pthread_rwlock_wrlock(&lock);
-	if (ret) {
-		log_qcy(DEBUG_SERIOUS, "add session wrlock fail, ret = %d", ret);
-
-	}
-    ret = mi_ipc_stream_put_frame(MEDIA_VIDEO_MAIN_CHN, pvinfo);
+    ret = mi_ipc_stream_put_frame(MEDIA_VIDEO_MAIN_CHN, &pvinfo);
     if(ret != 0 ) {
         log_err("ringbuffer put video frame error %d\n", ret);
     }
-    ret = pthread_rwlock_unlock(&lock);
-	if (ret) {
-		log_qcy(DEBUG_SERIOUS, "add session unlock fail, ret = %d", ret);
-		return -1;
-	}
-	free(pvinfo);
+	//log_qcy(DEBUG_INFO, "micloud mi_ipc_stream_put_frame  video d!\n");
+	//free(pvinfo);
+	av_packet_sub(packet);
+	pthread_rwlock_unlock(&vlock);
+
     return ret;
 }
 
-static int local_send_audio_frame(message_t *msg)
+static int local_send_audio_frame(av_packet_t *packet)
 {
-    mi_frame_info_t *pvinfo = NULL;
+    mi_frame_info_t pvinfo = {0};
     int ret;
-    av_data_info_t	*avinfo;
-    pvinfo=( mi_frame_info_t *)malloc(sizeof(mi_frame_info_t));
-    pvinfo->data = (unsigned char*)(msg->extra);
-    if(  pvinfo->data==NULL || msg->arg==NULL )
-    	{
-    	log_err("--pvinfo->data==NULL || msg->arg==NULL--\n");
-    	return -1;}
-    avinfo = (av_data_info_t*)(msg->arg);
-    pvinfo->timestamp = avinfo->timestamp;
-    pvinfo->timestamp_s = avinfo->timestamp/1000;
-    pvinfo->seqNo = avinfo->frame_index;
-    pvinfo->data_size = msg->extra_size;
-    ret = pthread_rwlock_wrlock(&lock);
-	if (ret) {
-		log_qcy(DEBUG_SERIOUS, "add session wrlock fail, ret = %d", ret);
+    pthread_rwlock_rdlock(&alock);
+    if( (*(packet->init) == 0 )|| packet->data == NULL  )
+    {
+    	pthread_rwlock_unlock(&alock);
+    	return -1;
+    }
+    //pvinfo=( mi_frame_info_t *)malloc(sizeof(mi_frame_info_t));
 
-	}
+    pvinfo.data = (unsigned char*)(packet->data);
+    pvinfo.timestamp = packet->info.timestamp;
+    pvinfo.timestamp_s = packet->info.timestamp/1000;
+    pvinfo.seqNo = packet->info.index;
+    //pvinfo->seqNo=a_index++;
+    pvinfo.data_size = packet->info.size;
 
-    ret = mi_ipc_stream_put_frame(MEDIA_AUDIO_ALAW_CHN, pvinfo);
+    ret = mi_ipc_stream_put_frame(MEDIA_AUDIO_ALAW_CHN, &pvinfo);
     //log_err(" mi_ipc_stream_put_frame  audio \n");
     if(ret != 0 ) {
         log_err("ringbuffer put audio frame error %d\n", ret);
     }
-    ret = pthread_rwlock_unlock(&lock);
-	if (ret) {
-		log_qcy(DEBUG_SERIOUS, "add session unlock fail, ret = %d", ret);
-		return -1;
-	}
-	free(pvinfo);
+  //  log_qcy(DEBUG_SERIOUS, "--mi_ipc_stream_put_frame-------");
+	//free(pvinfo);
+	av_packet_sub(packet);
+	pthread_rwlock_unlock(&alock);
     return ret;
 
 }
@@ -120,6 +158,7 @@ static void *local_video_send_thread(void *arg)
     printf("enter thread local_video_send_thread send\n");
 	//把该线程设置为分离属性
 	pthread_detach(pthread_self());
+	misc_set_thread_name("local_video_send_thread");
     message_t	msg;
     v_pthread_creat_flags=1;
 	if( !video_buff.init ) {
@@ -128,37 +167,31 @@ static void *local_video_send_thread(void *arg)
     int ret,ret1;
     while(!pthread_exit_flags) {
     	   //read video frame
-			ret = pthread_rwlock_wrlock(&video_buff.lock);
-			if(ret)	{
-				log_qcy(DEBUG_SERIOUS, "add message lock fail, ret = %d", ret);
-				continue;
-			}
+    	//condition
+    	pthread_mutex_lock(&vmutex);
+    	if( video_buff.head == video_buff.tail ) {
+          //  log_qcy(DEBUG_SERIOUS, "--pthread_cond_wait video-------");
+			pthread_cond_wait(&vcond, &vmutex);
+    	}
 			msg_init(&msg);
 			ret = msg_buffer_pop(&video_buff, &msg);
-			ret1 = pthread_rwlock_unlock(&video_buff.lock);
-			if (ret1) {
-				log_qcy(DEBUG_SERIOUS, "add message unlock fail, ret = %d", ret1);
-				msg_free(&msg);
-				continue;
-			}
-
-	    	if( ret!=0 )
+         //   log_qcy(DEBUG_SERIOUS, "--msg_buffer_pop video-------");
+	    	pthread_mutex_unlock(&vmutex);
+	    	if( ret!=0 ){
+	         //   log_qcy(DEBUG_SERIOUS, "--continue video-------");
 	    		continue;
+	    	}
 	        if(ret == 0) {
-	            local_send_video_frame(&msg);
-	        }
-	        else {
-	            usleep(1000);
-	            continue;
+	            local_send_video_frame((av_packet_t*)(msg.arg));
 	        }
 	        msg_free(&msg);
-           // usleep(40000);
-	       // usleep(3000);
     }
-    pthread_exit_flags=0;
+
+    sendto_video2_exit();
+    msg_buffer_release2(&video_buff, &vmutex);
     v_pthread_creat_flags=0;
     log_qcy(DEBUG_SERIOUS, "-----------thread exit: server_micloud_video_stream----------");
-    msg_buffer_release(&video_buff);
+
     pthread_exit(0);
 }
 
@@ -169,43 +202,33 @@ static void *local_audio_send_thread(void *arg)
     int ret,ret1;
 	//把该线程设置为分离属性
 	pthread_detach(pthread_self());
+	misc_set_thread_name("local_audio_send_thread");
     a_pthread_creat_flags=1;
 	if( !audio_buff.init ) {
 		msg_buffer_init(&audio_buff, MSG_BUFFER_OVERFLOW_YES);
 	}
     while(!pthread_exit_flags) {
     	   //read audio frame
-			ret = pthread_rwlock_wrlock(&audio_buff.lock);
-			if(ret)	{
-				log_qcy(DEBUG_SERIOUS, "add message lock fail, ret = %d", ret);
-				continue;
-			}
+    	//condition
+    	pthread_mutex_lock(&amutex);
+    	if( audio_buff.head == audio_buff.tail ) {
+			pthread_cond_wait(&acond, &amutex);
+    	}
+
 			msg_init(&msg);
 			ret = msg_buffer_pop(&audio_buff, &msg);
-			ret1 = pthread_rwlock_unlock(&audio_buff.lock);
-			if (ret1) {
-				log_qcy(DEBUG_SERIOUS, "add message unlock fail, ret = %d", ret1);
-				msg_free(&msg);
-				continue;
-			}
-
+	    	pthread_mutex_unlock(&amutex);
 	    	if( ret!=0 )
 	    		continue;
 	        if(ret == 0) {
-	            local_send_audio_frame(&msg);
-	        }
-	        else {
-	            usleep(1000);
-	            continue;
+	            local_send_audio_frame((av_packet_t*)(msg.arg));
 	        }
 	        msg_free(&msg);
-            //usleep(40000);
-	        //usleep(3000);
     }
-    pthread_exit_flags=0;
+    sendto_audio_exit();
+    msg_buffer_release2(&audio_buff, &amutex);
     a_pthread_creat_flags=0;
     log_qcy(DEBUG_SERIOUS, "-----------thread exit: server_micloud_audio_stream----------");
-    msg_buffer_release(&audio_buff);
     pthread_exit(0);
 }
 
@@ -217,8 +240,10 @@ int creat_video_thread()
 {
 	int ret;
 	pthread_t video_pid;
-	if(v_pthread_creat_flags)  return 0;
-	pthread_rwlock_init(&lock, NULL);
+	if(v_pthread_creat_flags)  {
+		log_qcy(DEBUG_INFO, "v_pthread_creat_flags  is 1!");
+		return 0;
+	}
 	ret = pthread_create(&video_pid, NULL, local_video_send_thread, NULL);
 	if(ret < 0) {
 		printf("pthread create error with %s\n", strerror(errno));
@@ -233,7 +258,10 @@ int creat_audio_thread()
 {
 	int ret;
 	pthread_t audio_pid;
-	if(a_pthread_creat_flags)  return 0;
+	if(a_pthread_creat_flags)  {
+		log_qcy(DEBUG_INFO, "a_pthread_creat_flags  is 1!");
+		return 0;
+	}
 	ret = pthread_create(&audio_pid, NULL, local_audio_send_thread, NULL);
 	if(ret < 0) {
 		printf("pthread create error with %s\n", strerror(errno));
@@ -250,21 +278,19 @@ int mi_cloud_rpc_send(void *rpc_id, const char *method, const char *params)
 
 int mi_cloud_on_error(int ErrorCode)
 {
+	log_qcy(DEBUG_INFO, "mi_cloud_on_error");
     return 0;
 }
 
 int mi_cloud_get_snapshot(int pic_id)
 {
 		// need to modification
-	//char fname[MAX_SYSTEM_STRING_SIZE*2];
-	//log_qcy(DEBUG_INFO,"this is mi_cloud_get_snapshot pic_id is %d\n",pic_id);
 
-	//memset(fname,0,sizeof(fname));
-	//snprintf(fname,MAX_SYSTEM_STRING_SIZE*2,"%s%s",_config_.qcy_path, MOTION_PICTURE_PATH);
-    fp_img = fopen("./resource/motion.jpeg", "rb");
+	log_qcy(DEBUG_INFO,"this is mi_cloud_get_snapshot pic_id is %d\n",pic_id);
+    fp_img = fopen(MOTION_PICTURE_NAME, "rb");
     if((fp_img == NULL)) {
         log_info();
-    	log_qcy(DEBUG_INFO, "can't read live picture file ./resource/motion.jpeg\n");
+    	log_qcy(DEBUG_INFO, "can't read live picture file motion.jpeg\n");
         return -1;
     }
     if(fp_img) {
@@ -288,46 +314,49 @@ int mi_cloud_force_key_frame(int stream_id)
 
 int server_micloud_video_message(message_t *msg)
 {
-	int ret=0,ret1;
+	int ret=0,id = -1;
+	//id = msg->arg_in.wolf;
+    pthread_rwlock_rdlock(&lock1);
 	if( !video_buff.init ) {
 		log_qcy(DEBUG_INFO, "micloud video is not ready for message processing!");
+		pthread_rwlock_unlock(&lock1);
 		return -1;
-	}
-	ret = pthread_rwlock_wrlock(&video_buff.lock);
-	if(ret)	{
-		log_qcy(DEBUG_SERIOUS, "add message lock fail, ret = %d", ret);
-		return ret;
 	}
 	ret = msg_buffer_push(&video_buff, msg);
 	if( ret!=0 )
 		log_qcy(DEBUG_INFO, "message push in micloud error =%d", ret);
-	ret1 = pthread_rwlock_unlock(&video_buff.lock);
-	if (ret1)
-		log_qcy(DEBUG_SERIOUS, "add message unlock fail, ret = %d", ret1);
+	else {
+		pthread_cond_signal(&vcond);
+	}
+	pthread_rwlock_unlock(&lock1);
+   // log_qcy(DEBUG_SERIOUS, "--0000000000000000000-------");
 	return ret;
 }
 
 int server_micloud_audio_message(message_t *msg)
 {
-	int ret=0,ret1=0;
+	int ret=0,id = -1;
+	//id = msg->arg_in.wolf;
+    pthread_rwlock_rdlock(&lock2);
 	if( !audio_buff.init ) {
 		log_qcy(DEBUG_INFO, "micloud audio is not ready for message processing!");
+		pthread_rwlock_unlock(&lock2);
 		return -1;
-	}
-	ret = pthread_rwlock_wrlock(&audio_buff.lock);
-	if(ret)	{
-		log_qcy(DEBUG_SERIOUS, "add message lock fail, ret = %d", ret);
-		return ret;
 	}
 	ret = msg_buffer_push(&audio_buff, msg);
 	if( ret!=0 )
 		log_qcy(DEBUG_INFO, "message push in micloud error =%d", ret);
-	ret1 = pthread_rwlock_unlock(&audio_buff.lock);
-	if (ret1)
-		log_qcy(DEBUG_SERIOUS, "add message unlock fail, ret = %d", ret1);
+	else {
+		pthread_cond_signal(&acond);
+	}
+
+	pthread_rwlock_unlock(&lock2);
 	return ret;
 }
-void main_thread_exit_termination()
+void main_thread_exit_termination(int arg)
 {
-	pthread_exit_flags=1;
+	log_qcy(DEBUG_INFO, "micloud main_thread_exit_termination! arg =%d\n",arg);
+	pthread_exit_flags=arg;
+	pthread_cond_signal(&acond);
+	pthread_cond_signal(&vcond);
 }

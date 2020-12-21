@@ -47,12 +47,15 @@
 static server_info_t 		info;
 static micloud_config_t		micloud_config;
 static message_buffer_t		message;
-static pthread_rwlock_t			lock;
 static mi_alarm_config_t g_alarm_cfg = {0};
 //static mi_cloud_config_t g_config = {0};
+static pthread_rwlock_t		m_lock = PTHREAD_RWLOCK_INITIALIZER;
+static pthread_mutex_t		m_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t		m_cond = PTHREAD_COND_INITIALIZER;
+
 
 static RPC_HANDLE_T g_rpc_handle = NULL;
-static int hang_up_flag=0;
+static int m_hang_up_flag=0;
 //function
 //common
 static void *server_func(void *arg);
@@ -78,6 +81,46 @@ static int get_video_audio_stream_cmd(void);
 
 /*
  * helper
+ */
+
+/*
+ *
+ static int  video_audio_cmd(int switch)
+ {
+ 	message_t msg;
+
+ 	if(switch)
+ 	{
+	msg_init(&msg);
+	msg.message = MSG_VIDEO2_START;
+	msg.sender = msg.receiver = SERVER_MICLOUD;
+    ret=server_video2_message(&msg);
+
+    if(ret)  return -1;
+	log_qcy(DEBUG_INFO, "get_video_stream_cmd end ok  ret=%\n",ret);
+    ret1|=ret;
+
+	msg_init(&msg);
+	msg.message = MSG_AUDIO_START;
+	msg.sender = msg.receiver = SERVER_MICLOUD;
+	ret=server_audio_message(&msg);
+	}
+	else
+	{
+		msg_init(&msg);
+		msg.message = MSG_VIDEO2_STOP;
+		msg.sender = msg.receiver = SERVER_MICLOUD;
+		ret=server_video2_message(&msg);
+		if(ret)  return -1;
+
+		log_qcy(DEBUG_INFO, "get_video_stream_cmd end ok  ret=%\n",ret);
+		ret1|=ret;
+		msg_init(&msg);
+		msg.message = MSG_AUDIO_STOP;
+		msg.sender = msg.receiver = SERVER_MICLOUD;
+		ret=server_audio_message(&msg);
+	}
+	}
  */
 static void rpc_cb(void *data, uint32_t size, void *ptr)
 {
@@ -187,6 +230,7 @@ static int stream_init(int quality)
 {
     int ret;
     if(quality==0){
+		log_qcy(DEBUG_INFO, " micloud quality ==0 ");
 		stream_channel_info_t stream;
 		stream.chn = MEDIA_VIDEO_MAIN_CHN;
 		stream.video.encode = CODEC_VIDEO_H264;
@@ -214,11 +258,12 @@ static int stream_init(int quality)
     }
 
     if(quality==1){
+		log_qcy(DEBUG_INFO, " micloud quality ==1 ");
 		stream_channel_info_t stream;
 		stream.chn = MEDIA_VIDEO_MAIN_CHN;
 		stream.video.encode = CODEC_VIDEO_H264;
 		stream.fps = 15;
-		stream.video.resolution = FLAG_RESOLUTION_VIDEO_360P;
+		stream.video.resolution = FLAG_RESOLUTION_VIDEO_720P;
 		stream.bitrate = 1024; /*kbps*/
 		stream.buffer_max_seconds = 0;
 		ret = mi_ipc_stream_chn_add(&stream);
@@ -241,12 +286,12 @@ static int stream_init(int quality)
     }
 
     if(quality==2){
-    		log_info(" micloud quality ==2 ");
+		log_qcy(DEBUG_INFO, " micloud quality ==2 ");
 		stream_channel_info_t stream;
 		stream.chn = MEDIA_VIDEO_MAIN_CHN;
 		stream.video.encode = CODEC_VIDEO_H264;
 		stream.fps = 15;
-		stream.video.resolution = FLAG_RESOLUTION_VIDEO_720P;
+		stream.video.resolution = FLAG_RESOLUTION_VIDEO_1080P;
 		stream.bitrate = 1024; /*kbps*/
 		stream.buffer_max_seconds = 0;
 		ret = mi_ipc_stream_chn_add(&stream);
@@ -349,16 +394,15 @@ static int server_message_proc(void)
 	msg_init(&msg);
 	msg_init(&send_msg);
 	int st;
-	ret = pthread_rwlock_wrlock(&message.lock);
-	if(ret)	{
-    	log_qcy(DEBUG_SERIOUS, "add lock fail, ret = %d", ret);
-		return ret;
+	pthread_mutex_lock(&m_mutex);
+	if( message.head == message.tail ) {
+		if( info.status==STATUS_RUN   ) {
+			pthread_cond_wait(&m_cond,&m_mutex);
+		}
 	}
+
 	ret = msg_buffer_pop(&message, &msg);
-	ret1 = pthread_rwlock_unlock(&message.lock);
-	if (ret1) {
-		log_qcy(DEBUG_SERIOUS, "add unlock fail, ret = %d", ret);
-	}
+	pthread_mutex_unlock(&m_mutex);
 	if( ret == -1) {
 		msg_free(&msg);
 		return -1;
@@ -374,7 +418,26 @@ static int server_message_proc(void)
 			log_qcy(DEBUG_INFO, "----------into -micloud-proc- MSG_MANAGER_TIMER_ACK  ----\n ");
 			((HANDLER)msg.arg_in.handler)();
 			break;
-		case MSG_MIIO_PROPERTY_NOTIFY:
+
+		case MSG_MIIO_PROPERTY_GET_ACK:
+			log_qcy(DEBUG_INFO, "into  PRO  MSG_MIIO_PROPERTY_GET_ACK  from server miio\n");
+			if( msg.arg_in.cat == MIIO_PROPERTY_CLIENT_STATUS ) {
+					if(msg.arg_in.dog == STATE_CLOUD_CONNECTED)
+						{
+						if(info.status ==STATUS_NONE)
+							{
+								sleep(15);
+								server_set_status(STATUS_TYPE_STATUS, STATUS_WAIT);
+							}
+						else if(info.status ==STATUS_IDLE)
+							{
+								sleep(15);
+								server_set_status(STATUS_TYPE_STATUS, STATUS_RESTART);
+							}
+						}
+			}
+			break;
+		/*case MSG_MIIO_PROPERTY_NOTIFY:
 			log_qcy(DEBUG_INFO, "into  PRO  MICLOUD_INIT_RESOURCE  from server miio\n");
 			if( msg.arg_in.cat == MIIO_PROPERTY_CLIENT_STATUS ) {
 				if(msg.arg_in.dog == STATE_CLOUD_CONNECTED)
@@ -386,7 +449,7 @@ static int server_message_proc(void)
 						server_set_status(STATUS_TYPE_STATUS, STATUS_NONE);
 					}
 			}
-			break;
+			break;*/
 		case MSG_VIDEO2_START_ACK:
 			log_info("into  MSG_VIDEO2_START_ACK\n");
 			break;
@@ -404,6 +467,8 @@ static int server_message_proc(void)
 		case MICLOUD_EVENT_TYPE_OBJECTMOTION:
 			//画面变动
 			log_qcy(DEBUG_INFO, "into  PRO MICLOUD_EVENT_TYPE_OBJECTMOTION\n");
+			if(info.status!=STATUS_RUN)  break;
+			sleep(1);
             ret=mi_cloud_upload(CLOUD_EVENT_TYPE_OBJECTMOTION);
             if(ret)
 			log_qcy(DEBUG_INFO, "upload OBJECTMOTION event faile /n");
@@ -506,12 +571,24 @@ static int heart_beat_proc(void)
 static void task_default(void)
 {
 	int ret;
+	message_t msg;
 	switch( info.status ){
 		case STATUS_NONE:
-			server_set_status(STATUS_TYPE_STATUS, STATUS_WAIT);
+		    /********message body********/
+			msg_init(&msg);
+			msg.message = MSG_MIIO_PROPERTY_GET;
+			msg.sender = msg.receiver = SERVER_MICLOUD;
+			msg.arg_in.cat = MIIO_PROPERTY_CLIENT_STATUS;
+			server_miio_message(&msg);
+			/****************************/
+			sleep(4);
+			//server_set_status(STATUS_TYPE_STATUS, STATUS_WAIT);
+			log_qcy(DEBUG_INFO,"micloud STATUS_NONE\n");
 			break;
 		case STATUS_WAIT:
-		    log_info("STATUS_WAIT\n");
+			log_qcy(DEBUG_INFO,"STATUS_WAIT\n");
+			server_release();
+			sleep(6);
 			memset(&micloud_config, 0, sizeof(micloud_config_t));
 			ret = config_micloud_read(&micloud_config);
 			log_qcy(DEBUG_INFO,"micloud_config.profile.model=%s\n",micloud_config.profile.model);
@@ -547,6 +624,16 @@ static void task_default(void)
 				break;
 
 		    }
+		    server_set_status(STATUS_TYPE_STATUS, STATUS_START);
+			log_qcy(DEBUG_INFO,"--intoSTATUS_SETUP end--\n");
+			break;
+		case STATUS_IDLE:
+			//if(hang_up_flag == 1)
+				//server_set_status(STATUS_TYPE_STATUS, STATUS_WAIT);
+			sleep(1);
+			break;
+		case STATUS_START:
+			sleep(3);
 			if(alarm_config_update() !=0 )
 		    {
 		        server_set_status(STATUS_TYPE_STATUS, STATUS_ERROR);
@@ -554,15 +641,6 @@ static void task_default(void)
 				break;
 
 		    }
-		    server_set_status(STATUS_TYPE_STATUS, STATUS_START);
-			log_qcy(DEBUG_INFO,"--intoSTATUS_SETUP end--\n");
-			break;
-		case STATUS_IDLE:
-			if(hang_up_flag == 1)
-				server_set_status(STATUS_TYPE_STATUS, STATUS_NONE);
-			sleep(1);
-			break;
-		case STATUS_START:
 		    ret=get_video_audio_stream_cmd();
 		    if(ret){
 	        server_set_status(STATUS_TYPE_STATUS, STATUS_START);
@@ -580,16 +658,16 @@ static void task_default(void)
 		case STATUS_RESTART:
 			server_release();
 			sleep(2);
-			server_set_status(STATUS_TYPE_STATUS, STATUS_NONE);
+			server_set_status(STATUS_TYPE_STATUS, STATUS_WAIT);
 			break;
 		case STATUS_ERROR:
 			server_release();
 			sleep(2);
-			server_set_status(STATUS_TYPE_STATUS, STATUS_NONE);
+			server_set_status(STATUS_TYPE_STATUS, STATUS_WAIT);
 			log_qcy(DEBUG_SERIOUS, "server micloud STATUS_ERROR\n");
 			break;
 	}
-	usleep(10000);
+	usleep(50000);
 	return;
 }
 
@@ -618,30 +696,32 @@ static void *server_func(void *arg)
 	}
 	memset(&info, 0, sizeof(server_info_t));
 	//default task
-	info.status=STATUS_IDLE;
+	if(m_hang_up_flag==1)    {  info.status=STATUS_WAIT;  }
+	else {
+	info.status=STATUS_NONE;}
+	main_thread_exit_termination(0);
 	info.task.func = task_default;
 	info.task.start = STATUS_NONE;
 	info.task.end = STATUS_RUN;
 	while( !info.exit ) {
 		info.task.func();
 		server_message_proc();
-		heart_beat_proc();
-
-		if( info.exit ) {
-			while( info.thread_start ) {
-			}
-			main_thread_exit_termination();
-			hang_up_flag=1;
-		    /********message body********/
-			message_t msg;
-			msg_init(&msg);
-			msg.message = MSG_MANAGER_EXIT_ACK;
-			msg.sender = SERVER_MICLOUD;
-			manager_message(&msg);
-			/***************************/
-		}
 	}
-	server_release();
+	if( info.exit ) {
+		while( info.thread_start ) {
+		}
+		server_release();
+		main_thread_exit_termination(1);
+		m_hang_up_flag=1;
+	    /********message body********/
+		message_t msg;
+		msg_init(&msg);
+		msg.message = MSG_MANAGER_EXIT_ACK;
+		msg.sender = SERVER_MICLOUD;
+		manager_message(&msg);
+		/***************************/
+	}
+	msg_buffer_release(&message);
 	log_qcy(DEBUG_INFO,"-----------thread exit: server_micloud-----------");
 	pthread_exit(0);
 }
@@ -661,7 +741,7 @@ int server_micloud_start(void)
 		 return ret;
 	 }
 	else {
-		log_qcy(DEBUG_INFO,"micloud server create successful!");
+		log_qcy(DEBUG_INFO,"micloud server_func pthread_create successful!");
 		return 0;
 	}
 }
@@ -680,11 +760,15 @@ int server_micloud_message(message_t *msg)
 	ret = pthread_rwlock_wrlock(&message.lock);
 	if(ret)	{
 		log_err("add message lock fail, ret = %d\n", ret);
+		pthread_rwlock_unlock(&message.lock);
 		return ret;
 	}
 	ret = msg_buffer_push(&message, msg);
 	if( ret!=0 )
 		log_err("message push in micloud_server error =%d", ret);
+	else {
+		pthread_cond_signal(&m_cond);
+	}
 	ret1 = pthread_rwlock_unlock(&message.lock);
 	if (ret1)
 		log_err("add message unlock fail, ret = %d\n", ret1);
