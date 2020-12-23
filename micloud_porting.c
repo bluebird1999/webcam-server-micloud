@@ -21,7 +21,7 @@
 #include <mi_cloud_porting.h>
 #include "../../tools/tools_interface.h"
 #include "../../server/realtek/realtek_interface.h"
-#include "../../server/video2/video2_interface.h"
+#include "../../server/video/video_interface.h"
 #include "../../server/audio/audio_interface.h"
 #include "micloud.h"
 
@@ -46,20 +46,20 @@ static int v_pthread_creat_flags=0;
 
 static int local_send_video_frame(av_packet_t *packet);
 static int local_send_audio_frame(av_packet_t *packet);
-static int sendto_video2_exit(void);
+static int sendto_video_exit(void);
 static int sendto_audio_exit(void);
 
 
 
-static int sendto_video2_exit(void)
+static int sendto_video_exit(void)
 {
 		int ret;
 		message_t msg;
 	    /********message video body********/
 		msg_init(&msg);
-		msg.message = MSG_VIDEO2_STOP;
+		msg.message = MSG_VIDEO_STOP;
 		msg.sender = msg.receiver = SERVER_MICLOUD;
-	    ret=server_video2_message(&msg);
+	    ret=server_video_message(&msg);
 		/****************************/
 	    if(ret)  return -1;
 		log_qcy(DEBUG_INFO, "get_video_stream_cmd end ok  ret=%\n",ret);
@@ -187,7 +187,7 @@ static void *local_video_send_thread(void *arg)
 	        msg_free(&msg);
     }
 
-    sendto_video2_exit();
+    sendto_video_exit();
     msg_buffer_release2(&video_buff, &vmutex);
     v_pthread_creat_flags=0;
     log_qcy(DEBUG_SERIOUS, "-----------thread exit: server_micloud_video_stream----------");

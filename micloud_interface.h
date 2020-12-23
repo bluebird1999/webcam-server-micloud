@@ -18,7 +18,7 @@
  * define
  */
 
-#define		SERVER_MICLOUD_VERSION_STRING			"alpha-3.3"
+#define		SERVER_MICLOUD_VERSION_STRING			"alpha-5.0"
 
 #define		MSG_MICLOUD_BASE						   (SERVER_MICLOUD<<16)
 #define		MSG_MICLOUD_SIGINT							MSG_MICLOUD_BASE | 0x0000
@@ -26,7 +26,7 @@
 //if video_md.config parameter change
 #define		MSG_MICLOUD_CHANGE_PARA  				  	MSG_MICLOUD_BASE | 0x0010
 
-#define		MSG_MICLOUD_VIDEO2_DATA						MSG_MICLOUD_BASE | 0x0011
+#define		MSG_MICLOUD_VIDEO_DATA						MSG_MICLOUD_BASE | 0x0011
 #define		MSG_MICLOUD_AUDIO_DATA						MSG_MICLOUD_BASE | 0x0012
 //#define		MSG_MICLOUD_INIT_RESOURCE					MSG_MICLOUD_BASE | 0x0013
 //control

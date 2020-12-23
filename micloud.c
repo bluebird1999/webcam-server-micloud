@@ -30,7 +30,7 @@
 #include "../../tools/tools_interface.h"
 #include "../../manager/manager_interface.h"
 #include "../../server/miio/miio_interface.h"
-#include "../../server/video2/video2_interface.h"
+#include "../../server/video/video_interface.h"
 #include "../../server/audio/audio_interface.h"
 #include "../../server/realtek/realtek_interface.h"
 //server header
@@ -92,9 +92,9 @@ static int get_video_audio_stream_cmd(void);
  	if(switch)
  	{
 	msg_init(&msg);
-	msg.message = MSG_VIDEO2_START;
+	msg.message = MSG_VIDEO_START;
 	msg.sender = msg.receiver = SERVER_MICLOUD;
-    ret=server_video2_message(&msg);
+    ret=server_video_message(&msg);
 
     if(ret)  return -1;
 	log_qcy(DEBUG_INFO, "get_video_stream_cmd end ok  ret=%\n",ret);
@@ -108,9 +108,9 @@ static int get_video_audio_stream_cmd(void);
 	else
 	{
 		msg_init(&msg);
-		msg.message = MSG_VIDEO2_STOP;
+		msg.message = MSG_VIDEO_STOP;
 		msg.sender = msg.receiver = SERVER_MICLOUD;
-		ret=server_video2_message(&msg);
+		ret=server_video_message(&msg);
 		if(ret)  return -1;
 
 		log_qcy(DEBUG_INFO, "get_video_stream_cmd end ok  ret=%\n",ret);
@@ -163,9 +163,9 @@ static int get_video_audio_stream_cmd()
 	message_t msg;
     /********message video body********/
 	msg_init(&msg);
-	msg.message = MSG_VIDEO2_START;
+	msg.message = MSG_VIDEO_START;
 	msg.sender = msg.receiver = SERVER_MICLOUD;
-    ret=server_video2_message(&msg);
+    ret=server_video_message(&msg);
 	/****************************/
     if(ret)  return -1;
 	log_qcy(DEBUG_INFO, "get_video_stream_cmd end ok  ret=%\n",ret);
@@ -450,8 +450,8 @@ static int server_message_proc(void)
 					}
 			}
 			break;*/
-		case MSG_VIDEO2_START_ACK:
-			log_info("into  MSG_VIDEO2_START_ACK\n");
+		case MSG_VIDEO_START_ACK:
+			log_info("into  MSG_VIDEO_START_ACK\n");
 			break;
 		case MSG_AUDIO_START_ACK:
 			log_info("into  MSG_AUDIO_START_ACK\n");
