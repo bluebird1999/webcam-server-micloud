@@ -18,7 +18,7 @@
  * define
  */
 
-#define		SERVER_MICLOUD_VERSION_STRING			"alpha-5.0"
+#define		SERVER_MICLOUD_VERSION_STRING			"alpha-5.1"
 
 #define		MSG_MICLOUD_BASE						   (SERVER_MICLOUD<<16)
 #define		MSG_MICLOUD_SIGINT							MSG_MICLOUD_BASE | 0x0000

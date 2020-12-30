@@ -388,12 +388,11 @@ static int server_set_status(int type, int st)
 
 static int server_message_proc(void)
 {
-	int ret = 0, ret1 = 0;
+	int ret = 0;
 	message_t msg;
 	message_t send_msg;
 	msg_init(&msg);
 	msg_init(&send_msg);
-	int st;
 	pthread_mutex_lock(&m_mutex);
 	if( message.head == message.tail ) {
 		if( info.status==STATUS_RUN   ) {
@@ -412,7 +411,17 @@ static int server_message_proc(void)
 	}
 	switch(msg.message){
 		case MSG_MANAGER_EXIT:
-			server_set_status(STATUS_TYPE_EXIT,1);
+			//server_set_status(STATUS_TYPE_EXIT,1);
+				main_thread_exit_termination(1);
+				m_hang_up_flag=1;
+			    /********message body********/
+				message_t msg2;
+				msg_init(&msg2);
+				msg2.message = MSG_MANAGER_EXIT_ACK;
+				msg2.sender = SERVER_MICLOUD;
+				manager_message(&msg2);
+				/***************************/
+				log_qcy(DEBUG_INFO,"-----------thread exit: server_micloud----pause-------");
 			break;
 		case MSG_MANAGER_TIMER_ACK:
 			log_qcy(DEBUG_INFO, "----------into -micloud-proc- MSG_MANAGER_TIMER_ACK  ----\n ");
@@ -421,35 +430,21 @@ static int server_message_proc(void)
 
 		case MSG_MIIO_PROPERTY_GET_ACK:
 			log_qcy(DEBUG_INFO, "into  PRO  MSG_MIIO_PROPERTY_GET_ACK  from server miio\n");
+			log_qcy(DEBUG_INFO, " msg.arg_in.cat =%d  msg.arg_in.dog =%d \n", msg.arg_in.cat,msg.arg_in.dog);
 			if( msg.arg_in.cat == MIIO_PROPERTY_CLIENT_STATUS ) {
 					if(msg.arg_in.dog == STATE_CLOUD_CONNECTED)
 						{
 						if(info.status ==STATUS_NONE)
 							{
-								sleep(15);
 								server_set_status(STATUS_TYPE_STATUS, STATUS_WAIT);
 							}
 						else if(info.status ==STATUS_IDLE)
 							{
-								sleep(15);
 								server_set_status(STATUS_TYPE_STATUS, STATUS_RESTART);
 							}
 						}
 			}
 			break;
-		/*case MSG_MIIO_PROPERTY_NOTIFY:
-			log_qcy(DEBUG_INFO, "into  PRO  MICLOUD_INIT_RESOURCE  from server miio\n");
-			if( msg.arg_in.cat == MIIO_PROPERTY_CLIENT_STATUS ) {
-				if(msg.arg_in.dog == STATE_CLOUD_CONNECTED)
-					{
-					sleep(15);
-					if(info.status !=STATUS_IDLE)
-						server_set_status(STATUS_TYPE_STATUS, STATUS_RESTART);
-					else
-						server_set_status(STATUS_TYPE_STATUS, STATUS_NONE);
-					}
-			}
-			break;*/
 		case MSG_VIDEO_START_ACK:
 			log_info("into  MSG_VIDEO_START_ACK\n");
 			break;
@@ -460,9 +455,11 @@ static int server_message_proc(void)
 		case MICLOUD_EVENT_TYPE_PEOPLEMOTION:
 			//有人移动
 			log_qcy(DEBUG_INFO, "into  PRO MICLOUD_EVENT_TYPE_PEOPLEMOTION\n");
-          /*  ret=mi_cloud_upload(CLOUD_EVENT_TYPE_PEOPLEMOTION);
+			if(info.status!=STATUS_RUN)  break;
+			sleep(1);
+            ret=mi_cloud_upload(CLOUD_EVENT_TYPE_PEOPLEMOTION);
             if(ret)
-            	log_qcy(DEBUG_INFO, "upload PEOPLEMOTION event faile /n");*/
+            	log_qcy(DEBUG_INFO, "upload PEOPLEMOTION event faile /n");
 			break;
 		case MICLOUD_EVENT_TYPE_OBJECTMOTION:
 			//画面变动
@@ -581,14 +578,12 @@ static void task_default(void)
 			msg.arg_in.cat = MIIO_PROPERTY_CLIENT_STATUS;
 			server_miio_message(&msg);
 			/****************************/
-			sleep(4);
+			sleep(2);
 			//server_set_status(STATUS_TYPE_STATUS, STATUS_WAIT);
 			log_qcy(DEBUG_INFO,"micloud STATUS_NONE\n");
 			break;
 		case STATUS_WAIT:
 			log_qcy(DEBUG_INFO,"STATUS_WAIT\n");
-			server_release();
-			sleep(6);
 			memset(&micloud_config, 0, sizeof(micloud_config_t));
 			ret = config_micloud_read(&micloud_config);
 			log_qcy(DEBUG_INFO,"micloud_config.profile.model=%s\n",micloud_config.profile.model);
@@ -607,6 +602,7 @@ static void task_default(void)
 				sleep(2);
 			break;
 		case STATUS_SETUP:
+			log_qcy(DEBUG_INFO,"micloud STATUS_SETUP\n");
 		    if(micloud_ipc_sdk_init() != 0 ){
 				log_qcy(DEBUG_SERIOUS, "micloud_ipc_sdk_init error");
 		        server_set_status(STATUS_TYPE_STATUS, STATUS_ERROR);
@@ -624,16 +620,7 @@ static void task_default(void)
 				break;
 
 		    }
-		    server_set_status(STATUS_TYPE_STATUS, STATUS_START);
-			log_qcy(DEBUG_INFO,"--intoSTATUS_SETUP end--\n");
-			break;
-		case STATUS_IDLE:
-			//if(hang_up_flag == 1)
-				//server_set_status(STATUS_TYPE_STATUS, STATUS_WAIT);
-			sleep(1);
-			break;
-		case STATUS_START:
-			sleep(3);
+			sleep(2);
 			if(alarm_config_update() !=0 )
 		    {
 		        server_set_status(STATUS_TYPE_STATUS, STATUS_ERROR);
@@ -641,10 +628,20 @@ static void task_default(void)
 				break;
 
 		    }
+		    server_set_status(STATUS_TYPE_STATUS, STATUS_START);
+			log_qcy(DEBUG_INFO,"--intoSTATUS_SETUP end--\n");
+			break;
+		case STATUS_IDLE:
+			//if(hang_up_flag == 1)
+			//server_set_status(STATUS_TYPE_STATUS, STATUS_WAIT);
+			sleep(1);
+			break;
+		case STATUS_START:
 		    ret=get_video_audio_stream_cmd();
 		    if(ret){
 	        server_set_status(STATUS_TYPE_STATUS, STATUS_START);
 			log_qcy(DEBUG_INFO,"STATUS_START error  break");
+			sleep(1);
 		    break;
 		    }
 			server_set_status(STATUS_TYPE_STATUS, STATUS_RUN);
@@ -659,6 +656,7 @@ static void task_default(void)
 			server_release();
 			sleep(2);
 			server_set_status(STATUS_TYPE_STATUS, STATUS_WAIT);
+			log_qcy(DEBUG_SERIOUS, "server micloud STATUS_RESTART\n");
 			break;
 		case STATUS_ERROR:
 			server_release();
@@ -695,37 +693,20 @@ static void *server_func(void *arg)
 		msg_buffer_init(&message, MSG_BUFFER_OVERFLOW_NO);
 	}
 	memset(&info, 0, sizeof(server_info_t));
-	//default task
-	if(m_hang_up_flag==1)    {  info.status=STATUS_WAIT;  }
-	else {
-	info.status=STATUS_NONE;}
+	info.status=STATUS_NONE;
 	main_thread_exit_termination(0);
 	info.task.func = task_default;
 	info.task.start = STATUS_NONE;
 	info.task.end = STATUS_RUN;
-	while( !info.exit ) {
+	while(1) {
 		info.task.func();
 		server_message_proc();
 	}
-	if( info.exit ) {
-		while( info.thread_start ) {
-		}
-		server_release();
-		main_thread_exit_termination(1);
-		m_hang_up_flag=1;
-	    /********message body********/
-		message_t msg;
-		msg_init(&msg);
-		msg.message = MSG_MANAGER_EXIT_ACK;
-		msg.sender = SERVER_MICLOUD;
-		manager_message(&msg);
-		/***************************/
-	}
 	msg_buffer_release(&message);
+	server_release();
 	log_qcy(DEBUG_INFO,"-----------thread exit: server_micloud-----------");
 	pthread_exit(0);
 }
-
 
 
 //*
@@ -734,6 +715,13 @@ static void *server_func(void *arg)
 int server_micloud_start(void)
 {
 	int ret=-1;
+	if(m_hang_up_flag==1) {
+		main_thread_exit_termination(0);
+		server_set_status(STATUS_TYPE_STATUS, STATUS_START);
+		log_qcy(DEBUG_INFO,"micloud server_func pthread_create successful!");
+		pthread_cond_signal(&m_cond);
+		return 0;
+	}
 	pthread_rwlock_init(&info.lock, NULL);
 	ret = pthread_create(&info.id, NULL, server_func, NULL);
 	if(ret != 0) {
