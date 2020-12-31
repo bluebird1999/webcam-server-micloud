@@ -237,8 +237,8 @@ int config_micloud_set(int module, void *arg)
 	    /********message body********/
 		msg_init(&msg);
 		msg.message = MSG_MANAGER_TIMER_ADD;
-		msg.sender = SERVER_MISS;
-		msg.arg_in.cat = 30000;	//1min
+		msg.sender = SERVER_MICLOUD;
+		msg.arg_in.cat = 1000;	//1min
 		msg.arg_in.dog = 0;
 		msg.arg_in.duck = 0;
 		msg.arg_in.handler = &micloud_config_save;
