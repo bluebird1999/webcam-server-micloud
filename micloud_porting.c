@@ -44,39 +44,6 @@ static int v_pthread_creat_flags=0;
 
 static int local_send_video_frame(av_packet_t *packet);
 static int local_send_audio_frame(av_packet_t *packet);
-static int sendto_video_exit(void);
-static int sendto_audio_exit(void);
-
-
-
-static int sendto_video_exit(void)
-{
-		int ret;
-		message_t msg;
-	    /********message video body********/
-		msg_init(&msg);
-		msg.message = MSG_VIDEO_STOP;
-		msg.sender = msg.receiver = SERVER_MICLOUD;
-	    ret=server_video_message(&msg);
-		/****************************/
-	    if(ret)  return -1;
-		log_qcy(DEBUG_INFO, "get_video_stream_cmd end ok  ret=%\n",ret);
-		return ret;
-}
-static int sendto_audio_exit(void)
-{
-		int ret;
-		message_t msg;
-	    /********message audio  body********/
-		msg_init(&msg);
-		msg.message = MSG_AUDIO_STOP;
-		msg.sender = msg.receiver = SERVER_MICLOUD;
-		ret=server_audio_message(&msg);
-		/****************************/
-	    if(ret)  return -1;
-		log_qcy(DEBUG_INFO, "get_audio_stream_cmd end ok  ret=%\n",ret);
-	return ret;
-}
 
 static int local_send_video_frame(av_packet_t *packet)
 {
@@ -178,7 +145,6 @@ static void *local_video_send_thread(void *arg)
 	        msg_free(&msg);
     }
 
-    sendto_video_exit();
     msg_buffer_release2(&video_buff, &vmutex);
     v_pthread_creat_flags=0;
     log_qcy(DEBUG_SERIOUS, "-----------thread exit: server_micloud_video_stream----------");
@@ -215,7 +181,6 @@ static void *local_audio_send_thread(void *arg)
 	        }
 	        msg_free(&msg);
     }
-    sendto_audio_exit();
     msg_buffer_release2(&audio_buff, &amutex);
     a_pthread_creat_flags=0;
     log_qcy(DEBUG_SERIOUS, "-----------thread exit: server_micloud_audio_stream----------");

@@ -72,7 +72,8 @@ static void str2hex(char *ds, unsigned char *bs, unsigned int n);
 static int micloud_ipc_sdk_init(void);
 static int micloud_init(void);
 static int alarm_config_update(void);
-static int get_video_audio_stream_cmd(void);
+static int miio_initiative_reported();
+static int video_audio_cmd(int cmd_switch);
 /*
  * %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
  * %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -83,27 +84,31 @@ static int get_video_audio_stream_cmd(void);
  * helper
  */
 
-/*
- *
- static int  video_audio_cmd(int switch)
- {
- 	message_t msg;
 
- 	if(switch)
+static int video_audio_cmd(int cmd_switch)
+{
+ 	message_t msg;
+ 	int ret;
+ 	if(cmd_switch)
  	{
 	msg_init(&msg);
 	msg.message = MSG_VIDEO_START;
 	msg.sender = msg.receiver = SERVER_MICLOUD;
     ret=server_video_message(&msg);
-
     if(ret)  return -1;
-	log_qcy(DEBUG_INFO, "get_video_stream_cmd end ok  ret=%\n",ret);
-    ret1|=ret;
 
 	msg_init(&msg);
 	msg.message = MSG_AUDIO_START;
 	msg.sender = msg.receiver = SERVER_MICLOUD;
 	ret=server_audio_message(&msg);
+    if(ret)  return -1;
+
+	ret=creat_video_thread();
+	 if(ret)  return -1;
+	ret=creat_audio_thread();
+	 if(ret)  return -1;
+
+	log_qcy(DEBUG_INFO, "start_audio_stream_cmd end ok  ret=%\n",ret);
 	}
 	else
 	{
@@ -113,15 +118,103 @@ static int get_video_audio_stream_cmd(void);
 		ret=server_video_message(&msg);
 		if(ret)  return -1;
 
-		log_qcy(DEBUG_INFO, "get_video_stream_cmd end ok  ret=%\n",ret);
-		ret1|=ret;
 		msg_init(&msg);
 		msg.message = MSG_AUDIO_STOP;
 		msg.sender = msg.receiver = SERVER_MICLOUD;
 		ret=server_audio_message(&msg);
+		if(ret)  return -1;
+		log_qcy(DEBUG_INFO, "exit_video_audio_stream_cmd end ok  ret=%\n",ret);
 	}
+ 	return 0;
+}
+
+
+static int miio_initiative_reported()
+{
+	int ret = 0, i,id = 0;
+	if(strlen(micloud_config.profile.did) <= 1 ) {
+		message_t msg;
+		/********message body********/
+		msg_init(&msg);
+		msg.message = MSG_MIIO_PROPERTY_GET;
+		msg.sender = msg.receiver = SERVER_MICLOUD;
+		msg.arg_in.cat = MIIO_PROPERTY_DID_STATUS;
+		server_miio_message(&msg);
+		/****************************/
+		log_qcy(DEBUG_INFO, "------miio_initiative_reported----- strlen(micloud_config.profile.did) < 1------\n");
+		return -1;
 	}
- */
+
+    id =  misc_generate_random_id();
+	 micloud_pro_info_t  temp_md_t={0};
+	 cJSON *change_root  = cJSON_CreateObject();
+	 cJSON *param_obj  = cJSON_CreateArray();
+
+	cJSON_AddNumberToObject(change_root, "id", id);
+	cJSON_AddStringToObject(change_root, "method", "properties_changed");
+	cJSON_AddItemToObject(change_root, "params", param_obj);
+
+	memcpy(&temp_md_t,&micloud_config.profile,sizeof(micloud_pro_info_t));
+    //Housekeeping assistant is to receive attribute to report
+	for(i = 1; i <=6; i++)
+	{
+		        cJSON *tmp0_obj  = cJSON_CreateObject();
+		        cJSON_AddItemToArray(param_obj, tmp0_obj);
+		        cJSON_AddStringToObject(tmp0_obj, "did",micloud_config.profile.did);
+		        if(i<=5){
+		        cJSON_AddNumberToObject(tmp0_obj, "piid", i);
+		        cJSON_AddNumberToObject(tmp0_obj, "siid", 5);
+		        }
+		        if(i==1)  {
+		        	bool track_switch;
+		        	if(temp_md_t.motion_detection_switch)
+						 track_switch = true;
+					else
+						 track_switch = false;
+		        	cJSON_AddBoolToObject(tmp0_obj, "value",track_switch);
+		        }
+		        if(i==2)  {
+
+		        	 cJSON_AddNumberToObject(tmp0_obj, "value", temp_md_t.alarm_interval);
+		        }
+		        if(i==3)  {
+
+		        	 cJSON_AddNumberToObject(tmp0_obj, "value", temp_md_t.motion_sensitivity);
+		        }
+		        if(i==4)  {
+
+					log_qcy(DEBUG_INFO, "--------reported StartTime:%s-----------------\n ",temp_md_t.motion_start);
+		        	 cJSON_AddStringToObject(tmp0_obj, "value", temp_md_t.motion_start);
+		        }
+		        if(i==5)  {
+					log_qcy(DEBUG_INFO, "--------reported endtime:%s-----------------\n ",temp_md_t.motion_end);
+		        	 cJSON_AddStringToObject(tmp0_obj, "value", temp_md_t.motion_end);
+		        }
+		        if(i==6)  {
+			        cJSON_AddNumberToObject(tmp0_obj, "piid", 9);
+			        cJSON_AddNumberToObject(tmp0_obj, "siid", 6);
+							bool report_switch;
+							if(temp_md_t.cloud_upload_switch)
+								report_switch = true;
+							else
+								report_switch = false;
+							cJSON_AddBoolToObject(tmp0_obj, "value",report_switch);
+		       		       }
+	}
+
+			char *ackbuf  = cJSON_Print(change_root);
+	        if(ackbuf) {
+	        	rpc_client_dispatch_msg(g_rpc_handle, ackbuf, strlen(ackbuf));
+	        	    //log_qcy(DEBUG_INFO, "MIIO init  report changed, %s", ackbuf);
+	        	    free(ackbuf);
+	        }
+
+			if(change_root) {
+				cJSON_Delete(change_root);
+			}
+    	 return 0;
+}
+
 static void rpc_cb(void *data, uint32_t size, void *ptr)
 {
 
@@ -154,36 +247,6 @@ static int alarm_config_update()
 	log_qcy(DEBUG_INFO, "upload stare-end time is %02d:%d%d-%02d:%d%d\n", g_alarm_cfg.alarm_start_hour, g_alarm_cfg.alarm_start_min ,g_alarm_cfg.alarm_start_sec,g_alarm_cfg.alarm_end_hour, g_alarm_cfg.alarm_end_min,g_alarm_cfg.alarm_end_sec);
 	ret=mi_alarm_config_set(&g_alarm_cfg);
 	return ret;
-}
-
-static int get_video_audio_stream_cmd()
-{
-	int ret, ret1=0;
-
-	message_t msg;
-    /********message video body********/
-	msg_init(&msg);
-	msg.message = MSG_VIDEO_START;
-	msg.sender = msg.receiver = SERVER_MICLOUD;
-    ret=server_video_message(&msg);
-	/****************************/
-    if(ret)  return -1;
-	log_qcy(DEBUG_INFO, "get_video_stream_cmd end ok  ret=%\n",ret);
-    ret1|=ret;
-    /********message audio  body********/
-	msg_init(&msg);
-	msg.message = MSG_AUDIO_START;
-	msg.sender = msg.receiver = SERVER_MICLOUD;
-	ret=server_audio_message(&msg);
-	/****************************/
-    if(ret)  return -1;
-	log_qcy(DEBUG_INFO, "get_audio_stream_cmd end ok  ret=%\n",ret);
-    ret1|=ret;
-	ret=creat_video_thread();
-	ret1|=ret;
-	ret=creat_audio_thread();
-	ret1|=ret;
-    return ret1;
 }
 
 static int micloud_init()
@@ -413,6 +476,7 @@ static int server_message_proc(void)
 		case MSG_MANAGER_EXIT:
 			//server_set_status(STATUS_TYPE_EXIT,1);
 				main_thread_exit_termination(1);
+				video_audio_cmd(0);
 				m_hang_up_flag=1;
 			    /********message body********/
 				message_t msg2;
@@ -427,7 +491,7 @@ static int server_message_proc(void)
 			log_qcy(DEBUG_INFO, "----------into -micloud-proc- MSG_MANAGER_TIMER_ACK  ----\n ");
 			((HANDLER)msg.arg_in.handler)();
 			break;
-
+		case MSG_MIIO_PROPERTY_NOTIFY:
 		case MSG_MIIO_PROPERTY_GET_ACK:
 			log_qcy(DEBUG_INFO, "into  PRO  MSG_MIIO_PROPERTY_GET_ACK  from server miio\n");
 			log_qcy(DEBUG_INFO, " msg.arg_in.cat =%d  msg.arg_in.dog =%d \n", msg.arg_in.cat,msg.arg_in.dog);
@@ -444,6 +508,16 @@ static int server_message_proc(void)
 							}
 						}
 			}
+			else if( msg.arg_in.cat == MIIO_PROPERTY_DID_STATUS ) {
+					if( msg.arg_in.dog == 1 ){
+						if(info.status ==STATUS_START || info.status ==STATUS_NONE)
+						{
+							memcpy(micloud_config.profile.did,(char*)(msg.arg),MAX_SYSTEM_STRING_SIZE);
+							log_qcy(DEBUG_INFO," micloud_config.profile.did =%s \n",micloud_config.profile.did);
+						}
+
+					}
+				}
 			break;
 		case MSG_VIDEO_START_ACK:
 			log_info("into  MSG_VIDEO_START_ACK\n");
@@ -579,23 +653,22 @@ static void task_default(void)
 			server_miio_message(&msg);
 			/****************************/
 			sleep(2);
-			//server_set_status(STATUS_TYPE_STATUS, STATUS_WAIT);
 			log_qcy(DEBUG_INFO,"micloud STATUS_NONE\n");
 			break;
 		case STATUS_WAIT:
 			log_qcy(DEBUG_INFO,"STATUS_WAIT\n");
 			memset(&micloud_config, 0, sizeof(micloud_config_t));
 			ret = config_micloud_read(&micloud_config);
-			log_qcy(DEBUG_INFO,"micloud_config.profile.model=%s\n",micloud_config.profile.model);
-			log_qcy(DEBUG_INFO,"micloud_config.profile.token=%s\n",micloud_config.profile.token);
-			log_qcy(DEBUG_INFO,"enable=%d\n",micloud_config.profile.motion_detection_switch);
-			log_qcy(DEBUG_INFO,"cloud_report=%d\n",micloud_config.profile.alarm_push);
-			log_qcy(DEBUG_INFO,"alarm_interval=%d\n",micloud_config.profile.alarm_interval);
-			log_qcy(DEBUG_INFO,"sensitivity=%d\n",micloud_config.profile.motion_sensitivity);
-			log_qcy(DEBUG_INFO,"start=%s\n",micloud_config.profile.motion_start);
-			log_qcy(DEBUG_INFO,"end=%s\n",micloud_config.profile.motion_end);
-			log_qcy(DEBUG_INFO,"cloud_switch=%d\n",micloud_config.profile.cloud_upload_switch);
-			log_qcy(DEBUG_INFO,"quality=%d\n",micloud_config.profile.quality);
+//			log_qcy(DEBUG_INFO,"micloud_config.profile.model=%s\n",micloud_config.profile.model);
+//			log_qcy(DEBUG_INFO,"micloud_config.profile.token=%s\n",micloud_config.profile.token);
+//			log_qcy(DEBUG_INFO,"enable=%d\n",micloud_config.profile.motion_detection_switch);
+//			log_qcy(DEBUG_INFO,"cloud_report=%d\n",micloud_config.profile.alarm_push);
+//			log_qcy(DEBUG_INFO,"alarm_interval=%d\n",micloud_config.profile.alarm_interval);
+//			log_qcy(DEBUG_INFO,"sensitivity=%d\n",micloud_config.profile.motion_sensitivity);
+//			log_qcy(DEBUG_INFO,"start=%s\n",micloud_config.profile.motion_start);
+//			log_qcy(DEBUG_INFO,"end=%s\n",micloud_config.profile.motion_end);
+//			log_qcy(DEBUG_INFO,"cloud_switch=%d\n",micloud_config.profile.cloud_upload_switch);
+//			log_qcy(DEBUG_INFO,"quality=%d\n",micloud_config.profile.quality);
 			if( ret == 0 )
 				server_set_status(STATUS_TYPE_STATUS, STATUS_SETUP);
 			else
@@ -637,11 +710,19 @@ static void task_default(void)
 			sleep(1);
 			break;
 		case STATUS_START:
-		    ret=get_video_audio_stream_cmd();
+			ret=miio_initiative_reported();
+			if(ret)  {
+				server_set_status(STATUS_TYPE_STATUS, STATUS_START);
+				log_qcy(DEBUG_INFO,"micloud miio_initiative_reported failed\n");
+				sleep(2);
+				break;
+			}
+
+		    ret=video_audio_cmd(1);
 		    if(ret){
 	        server_set_status(STATUS_TYPE_STATUS, STATUS_START);
-			log_qcy(DEBUG_INFO,"STATUS_START error  break");
-			sleep(1);
+			log_qcy(DEBUG_INFO,"STATUS_START video_audio_cmd error  break");
+			sleep(2);
 		    break;
 		    }
 			server_set_status(STATUS_TYPE_STATUS, STATUS_RUN);
