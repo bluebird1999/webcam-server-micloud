@@ -15,8 +15,10 @@ extern "C" {
 #define PROPERTIY_MASK 0xff
 #define SERVICE_MASK   0xff00
 #define MOTION_PICTURE_NAME                   "/tmp/motion.jpg"
+//#define MOTION_PICTURE_NAME                   "/tmp/motion_spd.jpg"
 
-
+#define   M_HANG_UP_FLAG             		1
+#define   PUT_FRAME_PAUE_FLAG               2
 
 int rpc_init();
 int media_init();

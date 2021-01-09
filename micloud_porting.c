@@ -49,11 +49,11 @@ static int local_send_video_frame(av_packet_t *packet)
 {
     mi_frame_info_t pvinfo = {0};
     int ret;
-    pthread_rwlock_rdlock(&vlock);
+    pthread_rwlock_rdlock(packet->lock);
     if( (*(packet->init) == 0 ) || packet->data == NULL  )
     {
     	log_qcy(DEBUG_INFO, "packet->data == NULL\n");
-    	pthread_rwlock_unlock(&vlock);
+    	pthread_rwlock_unlock(packet->lock);
     	return -1;
     }
    // pvinfo=( mi_frame_info_t *)malloc(sizeof(mi_frame_info_t));
@@ -78,7 +78,7 @@ static int local_send_video_frame(av_packet_t *packet)
     }
 
 	av_packet_sub(packet);
-	pthread_rwlock_unlock(&vlock);
+	pthread_rwlock_unlock(packet->lock);
 
     return ret;
 }
@@ -87,10 +87,11 @@ static int local_send_audio_frame(av_packet_t *packet)
 {
     mi_frame_info_t pvinfo = {0};
     int ret;
-    pthread_rwlock_rdlock(&alock);
+    pthread_rwlock_rdlock(packet->lock);
     if( (*(packet->init) == 0 )|| packet->data == NULL  )
     {
-    	pthread_rwlock_unlock(&alock);
+    	log_qcy(DEBUG_INFO, "audio packet->data == NULL\n");
+    	pthread_rwlock_unlock(packet->lock);
     	return -1;
     }
     //pvinfo=( mi_frame_info_t *)malloc(sizeof(mi_frame_info_t));
@@ -107,7 +108,7 @@ static int local_send_audio_frame(av_packet_t *packet)
         log_err("ringbuffer put audio frame error %d\n", ret);
     }
 	av_packet_sub(packet);
-	pthread_rwlock_unlock(&alock);
+	pthread_rwlock_unlock(packet->lock);
     return ret;
 
 }
