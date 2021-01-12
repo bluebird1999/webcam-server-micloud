@@ -89,7 +89,7 @@ void *frame_puse_thread(void *arg)
 	int count=0;
 		while(!info.exit)
 		{
-			if(count==90)
+			if(count==170)
 			{
 				video_audio_cmd(0);
 				main_thread_exit_termination(1);
@@ -140,7 +140,7 @@ static int video_audio_cmd(int cmd_switch)
 	ret=creat_audio_thread();
 	 if(ret)  return -1;
 
-	log_qcy(DEBUG_INFO, "start_audio_stream_cmd end ok  ret=%\n",ret);
+	 log_qcy(DEBUG_INFO, "start_audio_stream_cmd end ok  ret=%d\n",ret);
 	}
 	else
 	{
@@ -509,7 +509,7 @@ static int server_message_proc(void)
 				server_set_status(STATUS_TYPE_EXIT,1);
 				main_thread_exit_termination(1);
 				video_audio_cmd(0);
-				misc_set_bit(&info.init_status, M_HANG_UP_FLAG, 1);
+				//misc_set_bit(&info.init_status, M_HANG_UP_FLAG, 1);
 				misc_set_bit(&info.init_status, PUT_FRAME_PAUE_FLAG, 1);
 			    /********message body********/
 				message_t msg2;
@@ -832,13 +832,13 @@ static void *server_func(void *arg)
 	info.task.func = task_default;
 	info.task.start = STATUS_NONE;
 	info.task.end = STATUS_RUN;
-	while(1) {
+	while(!info.exit) {
 		info.task.func();
 		server_message_proc();
 	}
 	msg_buffer_release(&message);
 	server_release();
-	log_qcy(DEBUG_INFO,"-----------thread exit: server_micloud-----------");
+	//log_qcy(DEBUG_INFO,"-----------thread exit: server_micloud-----------");
 	pthread_exit(0);
 }
 
@@ -849,13 +849,13 @@ static void *server_func(void *arg)
 int server_micloud_start(void)
 {
 	int ret=-1;
-	if( misc_get_bit( info.init_status, M_HANG_UP_FLAG ) ) {
-		server_set_status(STATUS_TYPE_STATUS, STATUS_START);
-		server_set_status(STATUS_TYPE_EXIT,0);
-		log_qcy(DEBUG_INFO,"micloud server_func pthread_create successful!");
-		pthread_cond_signal(&m_cond);
-		return 0;
-	}
+//	if( misc_get_bit( info.init_status, M_HANG_UP_FLAG ) ) {
+//		server_set_status(STATUS_TYPE_STATUS, STATUS_START);
+//		server_set_status(STATUS_TYPE_EXIT,0);
+//		log_qcy(DEBUG_INFO,"micloud server_func pthread_create successful!");
+//		pthread_cond_signal(&m_cond);
+//		return 0;
+//	}
 	pthread_rwlock_init(&info.lock, NULL);
 	ret = pthread_create(&info.id, NULL, server_func, NULL);
 	if(ret != 0) {
