@@ -205,7 +205,7 @@ int creat_video_thread()
 		printf("pthread create error with %s\n", strerror(errno));
 		return -1;
 	}
-	log_qcy(DEBUG_INFO, "micloud creat_video_thread sucees ret1=%\n",ret);
+	log_qcy(DEBUG_INFO, "micloud creat_video_thread sucees ret1=%d\n",ret);
 	return ret;
 }
 
@@ -223,7 +223,7 @@ int creat_audio_thread()
 		printf("pthread create error with %s\n", strerror(errno));
 		return -1;
 	}
-	log_qcy(DEBUG_INFO, "micloud creat_audio_thread sucees ret1=%\n");
+	log_qcy(DEBUG_INFO, "micloud creat_audio_thread sucees ret1=%d\n");
 	return ret;
 }
 

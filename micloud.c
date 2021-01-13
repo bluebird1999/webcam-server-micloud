@@ -89,7 +89,7 @@ void *frame_puse_thread(void *arg)
 	int count=0;
 		while(!info.exit)
 		{
-			if(count==170)
+			if(count==165)
 			{
 				video_audio_cmd(0);
 				main_thread_exit_termination(1);
@@ -140,7 +140,7 @@ static int video_audio_cmd(int cmd_switch)
 	ret=creat_audio_thread();
 	 if(ret)  return -1;
 
-	 log_qcy(DEBUG_INFO, "start_audio_stream_cmd end ok  ret=%d\n",ret);
+	 log_qcy(DEBUG_INFO, "start_stream_cmd end ok  ret=%d\n",ret);
 	}
 	else
 	{
@@ -565,15 +565,15 @@ static int server_message_proc(void)
 			if(info.status!=STATUS_RUN)  break;
 			if( misc_get_bit( info.init_status, PUT_FRAME_PAUE_FLAG ) )
 			{
-				log_qcy(DEBUG_INFO, "into MICLOUD_EVENT_TYPE_PEOPLEMOTION  misc_get_bit( info.init_status, PUT_FRAME_PAUE_FLAG  \n");
-				misc_set_bit(&info.init_status, PUT_FRAME_PAUE_FLAG, 0);
 				main_thread_exit_termination(0);
 				ret=video_audio_cmd(1);
 				if(ret){
 				log_qcy(DEBUG_INFO," video_audio_cmd error  break");
 				break;
 				}
-				sleep(1);
+				log_qcy(DEBUG_INFO, "into MICLOUD_EVENT_TYPE_PEOPLEMOTION  misc_get_bit( info.init_status, PUT_FRAME_PAUE_FLAG  \n");
+				misc_set_bit(&info.init_status, PUT_FRAME_PAUE_FLAG, 0);
+				sleep(2);
 				ret=mi_cloud_upload(CLOUD_EVENT_TYPE_PEOPLEMOTION);
 				if(ret)
 					log_qcy(DEBUG_INFO, "upload PEOPLEMOTION event faile /n");
@@ -588,16 +588,16 @@ static int server_message_proc(void)
 			if(info.status!=STATUS_RUN)  break;
 			if( misc_get_bit( info.init_status, PUT_FRAME_PAUE_FLAG ) )
 			{
-				log_qcy(DEBUG_INFO, "into MICLOUD_EVENT_TYPE_OBJECTMOTION  misc_get_bit( info.init_status, PUT_FRAME_PAUE_FLAG  \n");
-				misc_set_bit(&info.init_status, PUT_FRAME_PAUE_FLAG, 0);
 				main_thread_exit_termination(0);
 				ret=video_audio_cmd(1);
 				if(ret){
 				log_qcy(DEBUG_INFO," video_audio_cmd error  break");
 				break;
 				}
+				log_qcy(DEBUG_INFO, "into MICLOUD_EVENT_TYPE_OBJECTMOTION  misc_get_bit( info.init_status, PUT_FRAME_PAUE_FLAG  \n");
+				misc_set_bit(&info.init_status, PUT_FRAME_PAUE_FLAG, 0);
 
-				sleep(1);
+				sleep(2);
 				ret=mi_cloud_upload(CLOUD_EVENT_TYPE_OBJECTMOTION);
 				if(ret)
 				log_qcy(DEBUG_INFO, "upload OBJECTMOTION event faile /n");
