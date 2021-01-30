@@ -29,13 +29,19 @@ static message_buffer_t		video_buff;
 static message_buffer_t		audio_buff;
 static pthread_rwlock_t		lock1=PTHREAD_RWLOCK_INITIALIZER;
 static pthread_rwlock_t		lock2=PTHREAD_RWLOCK_INITIALIZER;
-static pthread_rwlock_t		alock=PTHREAD_RWLOCK_INITIALIZER;
-static pthread_rwlock_t		vlock=PTHREAD_RWLOCK_INITIALIZER;
+//static pthread_rwlock_t		alock=PTHREAD_RWLOCK_INITIALIZER;
+//static pthread_rwlock_t		vlock=PTHREAD_RWLOCK_INITIALIZER;
 
 static	pthread_mutex_t			vmutex=PTHREAD_MUTEX_INITIALIZER;
 static	pthread_cond_t			vcond = PTHREAD_COND_INITIALIZER;
 static	pthread_mutex_t			amutex=PTHREAD_MUTEX_INITIALIZER;
 static	pthread_cond_t			acond = PTHREAD_COND_INITIALIZER;
+
+static	pthread_mutex_t			v_pause_mutex=PTHREAD_MUTEX_INITIALIZER;
+static	pthread_cond_t			v_pause_cond = PTHREAD_COND_INITIALIZER;
+static	pthread_mutex_t			a_pause_mutex=PTHREAD_MUTEX_INITIALIZER;
+static	pthread_cond_t			a_pause_cond = PTHREAD_COND_INITIALIZER;
+
 
 static FILE *fp_img = NULL;
 static int pthread_exit_flags=0;
@@ -52,7 +58,8 @@ static int local_send_video_frame(av_packet_t *packet)
     pthread_rwlock_rdlock(packet->lock);
     if( (*(packet->init) == 0 ) || packet->data == NULL  )
     {
-    	log_qcy(DEBUG_INFO, "packet->data == NULL\n");
+    	log_qcy(DEBUG_INFO, "video packet->data == NULL\n");
+    	av_packet_sub(packet);
     	pthread_rwlock_unlock(packet->lock);
     	return -1;
     }
@@ -91,6 +98,7 @@ static int local_send_audio_frame(av_packet_t *packet)
     if( (*(packet->init) == 0 )|| packet->data == NULL  )
     {
     	log_qcy(DEBUG_INFO, "audio packet->data == NULL\n");
+    	av_packet_sub(packet);
     	pthread_rwlock_unlock(packet->lock);
     	return -1;
     }
@@ -115,7 +123,7 @@ static int local_send_audio_frame(av_packet_t *packet)
 
 static void *local_video_send_thread(void *arg)
 {
-    printf("enter thread local_video_send_thread send\n");
+	log_qcy(DEBUG_SERIOUS, "enter thread local_video_send_thread send\n");
 	//把该线程设置为分离属性
 	pthread_detach(pthread_self());
 	misc_set_thread_name("local_video_send_thread");
@@ -124,8 +132,17 @@ static void *local_video_send_thread(void *arg)
 	if( !video_buff.init ) {
 		msg_buffer_init(&video_buff, MSG_BUFFER_OVERFLOW_YES);
 	}
-    int ret,ret1;
-    while(!pthread_exit_flags) {
+	int ret;
+    while(pthread_exit_flags!=2) {
+    	if(pthread_exit_flags==1)
+    	{
+        	pthread_mutex_lock(&v_pause_mutex);
+			log_qcy(DEBUG_SERIOUS, "--pthread_cond_wait video---pause--strat-\n");
+			pthread_cond_wait(&v_pause_cond, &v_pause_mutex);
+			log_qcy(DEBUG_SERIOUS, "--pthread_cond_wait video---pause--end--\n");
+			pthread_mutex_unlock(&v_pause_mutex);
+
+    	}
     	   //read video frame
     	//condition
     	pthread_mutex_lock(&vmutex);
@@ -156,7 +173,7 @@ static void *local_audio_send_thread(void *arg)
 {
     printf("enter thread audio send\n");
     message_t	msg;
-    int ret,ret1;
+    int ret;
 	//把该线程设置为分离属性
 	pthread_detach(pthread_self());
 	misc_set_thread_name("local_audio_send_thread");
@@ -164,7 +181,16 @@ static void *local_audio_send_thread(void *arg)
 	if( !audio_buff.init ) {
 		msg_buffer_init(&audio_buff, MSG_BUFFER_OVERFLOW_YES);
 	}
-    while(!pthread_exit_flags) {
+    while(pthread_exit_flags!=2) {
+    	if(pthread_exit_flags==1)
+    	{
+        	pthread_mutex_lock(&a_pause_mutex);
+			log_qcy(DEBUG_SERIOUS, "--pthread_cond_wait audio---pause--strat-\n");
+			pthread_cond_wait(&a_pause_cond, &a_pause_mutex);
+			log_qcy(DEBUG_SERIOUS, "--pthread_cond_wait audio---pause--end--\n");
+			pthread_mutex_unlock(&a_pause_mutex);
+
+    	}
     	   //read audio frame
     	//condition
     	pthread_mutex_lock(&amutex);
@@ -311,7 +337,24 @@ int server_micloud_audio_message(message_t *msg)
 void main_thread_exit_termination(int arg)
 {
 	log_qcy(DEBUG_INFO, "micloud miclou_porting_exit_termination! arg =%d\n",arg);
+	if(arg==1){
 	pthread_exit_flags=arg;
 	pthread_cond_signal(&acond);
 	pthread_cond_signal(&vcond);
+	}
+	else if(arg==0)
+	{
+		pthread_exit_flags=arg;
+		pthread_cond_signal(&v_pause_cond);
+		pthread_cond_signal(&a_pause_cond);
+	}
+	else if(arg==2)
+	{
+		pthread_exit_flags=arg;
+		pthread_cond_signal(&v_pause_cond);
+		pthread_cond_signal(&a_pause_cond);
+		pthread_cond_signal(&acond);
+		pthread_cond_signal(&vcond);
+	}
+
 }

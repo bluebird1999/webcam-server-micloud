@@ -52,7 +52,7 @@ static mi_alarm_config_t g_alarm_cfg = {0};
 static pthread_rwlock_t		m_lock = PTHREAD_RWLOCK_INITIALIZER;
 static pthread_mutex_t		m_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t		m_cond = PTHREAD_COND_INITIALIZER;
-
+static int time_count=0;
 
 static RPC_HANDLE_T g_rpc_handle = NULL;
 //function
@@ -86,20 +86,20 @@ static int micloud_put_frame_puse_timer(void);
 void *frame_puse_thread(void *arg)
 {
 	pthread_detach(pthread_self());
-	int count=0;
 		while(!info.exit)
 		{
-			if(count==165)
+			if(time_count==3600)
 			{
 				video_audio_cmd(0);
 				main_thread_exit_termination(1);
 				misc_set_bit(&info.init_status, PUT_FRAME_PAUE_FLAG, 1);
+				time_count=0;
 				break;
 			}
 				sleep(1);
-				count++;
+				time_count++;
 		}
-		log_qcy(DEBUG_INFO,"-----------thread exit: frame_puse_thread----micloud-------");
+		log_qcy(DEBUG_INFO,"-----------thread exit: frame_puse_thread----micloud-------\n");
 		pthread_exit(0);
 }
 static int micloud_put_frame_puse_timer(void)
@@ -134,12 +134,6 @@ static int video_audio_cmd(int cmd_switch)
 	msg.sender = msg.receiver = SERVER_MICLOUD;
 	ret=server_audio_message(&msg);
     if(ret)  return -1;
-
-	ret=creat_video_thread();
-	 if(ret)  return -1;
-	ret=creat_audio_thread();
-	 if(ret)  return -1;
-
 	 log_qcy(DEBUG_INFO, "start_stream_cmd end ok  ret=%d\n",ret);
 	}
 	else
@@ -272,7 +266,8 @@ static int alarm_config_update()
 {
 	int ret;
 	g_alarm_cfg.alarm_switch = true;
-	g_alarm_cfg.alarm_interval = micloud_config.profile.alarm_interval;  //5:2
+	if(micloud_config.profile.alarm_interval <3)  micloud_config.profile.alarm_interval=3;
+	g_alarm_cfg.alarm_interval = micloud_config.profile.alarm_interval -1;  //5:2
 
 	sscanf(micloud_config.profile.motion_start, "%d:%d:%d", &g_alarm_cfg.alarm_start_hour, &g_alarm_cfg.alarm_start_min,&g_alarm_cfg.alarm_start_sec);
 	sscanf(micloud_config.profile.motion_end, "%d:%d:%d",  &g_alarm_cfg.alarm_end_hour, &g_alarm_cfg.alarm_end_min,&g_alarm_cfg.alarm_end_sec);
@@ -507,7 +502,7 @@ static int server_message_proc(void)
 	switch(msg.message){
 		case MSG_MANAGER_EXIT:
 				server_set_status(STATUS_TYPE_EXIT,1);
-				main_thread_exit_termination(1);
+				main_thread_exit_termination(2);
 				video_audio_cmd(0);
 				//misc_set_bit(&info.init_status, M_HANG_UP_FLAG, 1);
 				misc_set_bit(&info.init_status, PUT_FRAME_PAUE_FLAG, 1);
@@ -545,6 +540,7 @@ static int server_message_proc(void)
 					if( msg.arg_in.dog == 1 ){
 						if(info.status ==STATUS_START || info.status ==STATUS_NONE)
 						{
+							if(msg.arg==NULL) break;
 							memcpy(micloud_config.profile.did,(char*)(msg.arg),MAX_SYSTEM_STRING_SIZE);
 							log_qcy(DEBUG_INFO," micloud_config.profile.did =%s \n",micloud_config.profile.did);
 						}
@@ -563,6 +559,7 @@ static int server_message_proc(void)
 			//有人移动
 			log_qcy(DEBUG_INFO, "into  PRO MICLOUD_EVENT_TYPE_PEOPLEMOTION\n");
 			if(info.status!=STATUS_RUN)  break;
+			if(time_count <= 170  &&  (misc_get_bit( info.init_status, PUT_FRAME_PAUE_FLAG )==0) )  break;
 			if( misc_get_bit( info.init_status, PUT_FRAME_PAUE_FLAG ) )
 			{
 				main_thread_exit_termination(0);
@@ -573,19 +570,19 @@ static int server_message_proc(void)
 				}
 				log_qcy(DEBUG_INFO, "into MICLOUD_EVENT_TYPE_PEOPLEMOTION  misc_get_bit( info.init_status, PUT_FRAME_PAUE_FLAG  \n");
 				misc_set_bit(&info.init_status, PUT_FRAME_PAUE_FLAG, 0);
-				sleep(2);
-				ret=mi_cloud_upload(CLOUD_EVENT_TYPE_PEOPLEMOTION);
-				if(ret)
-					log_qcy(DEBUG_INFO, "upload PEOPLEMOTION event faile /n");
 				micloud_put_frame_puse_timer();
-
 			}
-
+			usleep(500000);
+			ret=mi_cloud_upload(CLOUD_EVENT_TYPE_PEOPLEMOTION);
+			if(ret)
+				log_qcy(DEBUG_INFO, "upload PEOPLEMOTION event faile /n");
+			time_count=0;
 			break;
 		case MICLOUD_EVENT_TYPE_OBJECTMOTION:
 			//画面变动
 			log_qcy(DEBUG_INFO, "into  PRO MICLOUD_EVENT_TYPE_OBJECTMOTION\n");
 			if(info.status!=STATUS_RUN)  break;
+			if(time_count <= 170  &&  (misc_get_bit( info.init_status, PUT_FRAME_PAUE_FLAG )==0) )  break;
 			if( misc_get_bit( info.init_status, PUT_FRAME_PAUE_FLAG ) )
 			{
 				main_thread_exit_termination(0);
@@ -596,13 +593,13 @@ static int server_message_proc(void)
 				}
 				log_qcy(DEBUG_INFO, "into MICLOUD_EVENT_TYPE_OBJECTMOTION  misc_get_bit( info.init_status, PUT_FRAME_PAUE_FLAG  \n");
 				misc_set_bit(&info.init_status, PUT_FRAME_PAUE_FLAG, 0);
-
-				sleep(2);
-				ret=mi_cloud_upload(CLOUD_EVENT_TYPE_OBJECTMOTION);
-				if(ret)
-				log_qcy(DEBUG_INFO, "upload OBJECTMOTION event faile /n");
 				micloud_put_frame_puse_timer();
 			}
+			usleep(500000);
+			ret=mi_cloud_upload(CLOUD_EVENT_TYPE_OBJECTMOTION);
+			if(ret)
+			log_qcy(DEBUG_INFO, "upload OBJECTMOTION event faile /n");
+			time_count=0;
 			break;
 		case MSG_MICLOUD_CHANGE_PARA:
 			log_info("----------into --proc- MSG_MICLOUD_CHANGE_PARA  ----\n ");
@@ -779,6 +776,14 @@ static void task_default(void)
 			}
 			misc_set_bit(&info.init_status, PUT_FRAME_PAUE_FLAG, 1);
 			main_thread_exit_termination(0);
+			ret=video_audio_cmd(1);
+			ret=creat_video_thread();
+			ret=creat_audio_thread();
+			if(ret){
+			log_qcy(DEBUG_INFO," video_audio_cmd error  break");
+			sleep(2);
+			break;
+			}
 			server_set_status(STATUS_TYPE_STATUS, STATUS_RUN);
 			log_qcy(DEBUG_INFO,"create micloud server finished------");
 			break;
