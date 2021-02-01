@@ -285,6 +285,8 @@ int mi_cloud_get_snapshot(int pic_id)
         mi_cloud_set_snapshot(pic_id, data, size);
         free(data);
     }
+    fclose(fp_img);
+    fp_img=NULL;
     return 0;
 }
 

@@ -776,14 +776,18 @@ static void task_default(void)
 			}
 			misc_set_bit(&info.init_status, PUT_FRAME_PAUE_FLAG, 1);
 			main_thread_exit_termination(0);
-			ret=video_audio_cmd(1);
-			ret=creat_video_thread();
-			ret=creat_audio_thread();
-			if(ret){
-			log_qcy(DEBUG_INFO," video_audio_cmd error  break");
-			sleep(2);
-			break;
+
+			if(micloud_config.profile.motion_detection_switch){
+				ret=video_audio_cmd(1);
+				ret=creat_video_thread();
+				ret=creat_audio_thread();
+				if(ret){
+				log_qcy(DEBUG_INFO," video_audio_cmd error  break");
+				sleep(2);
+				break;
+				}
 			}
+
 			server_set_status(STATUS_TYPE_STATUS, STATUS_RUN);
 			log_qcy(DEBUG_INFO,"create micloud server finished------");
 			break;
